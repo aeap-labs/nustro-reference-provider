@@ -1,0 +1,9 @@
+.env
+keys/private_key.pem
+keys/certificate.jwt
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.zip

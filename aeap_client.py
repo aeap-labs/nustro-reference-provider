@@ -16,7 +16,7 @@ Usage:
       agent_did='did:aeap:...',
       private_key_path='/path/to/private_key.pem',
       certificate_path='/path/to/certificate.jwt',
-      platform_url='https://api.aeap.ai'
+      operator_url='https://api.nustro.ai'
   )
 
   # Phase 1 — verify a counterparty before calling
@@ -32,6 +32,7 @@ Usage:
   result = client.verify_incoming(request_headers, own_did='did:aeap:...')
 """
 
+import os
 import base64
 import secrets
 from datetime import datetime, timezone
@@ -43,7 +44,8 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.exceptions import InvalidSignature
 
 
-PLATFORM_URL = 'https://api.aeap.ai'
+# Operator base URL. Defaults to Nustro; override per-operator.
+OPERATOR_URL = os.environ.get('OPERATOR_URL', 'https://api.nustro.ai')
 TIMESTAMP_WINDOW_SECONDS = 30
 STATUS_CACHE_TTL = 30  # seconds
 
@@ -51,9 +53,9 @@ STATUS_CACHE_TTL = 30  # seconds
 class AEAPClient:
 
     def __init__(self, agent_did, private_key_path, certificate_path,
-                 platform_url=PLATFORM_URL):
+                 operator_url=OPERATOR_URL):
         self.agent_did = agent_did
-        self.platform_url = platform_url
+        self.operator_url = operator_url
 
         # Load private key
         with open(private_key_path, 'rb') as f:
@@ -91,7 +93,7 @@ class AEAPClient:
         Phase 1 verification — verify a counterparty before calling them.
 
         Steps:
-          1. Get a challenge nonce from the platform
+          1. Get a challenge nonce from the Operator
           2. Request the counterparty's certificate and signed response
              (caller does this by including the nonce in the request header)
           3. Verify certificate against AEAP CA
@@ -101,13 +103,13 @@ class AEAPClient:
         In the reference implementation, steps 2-4 are handled by
         verify_certificate_and_response() after the counterparty responds.
 
-        This method handles step 1 and step 5 (the platform calls).
+        This method handles step 1 and step 5 (the Operator calls).
         Steps 2-4 are offline and handled in verify_certificate_and_response().
 
         Args:
             counterparty_did: DID of the agent to verify
             require_environment: 'production' to reject sandbox agents
-            require_min_pop: minimum pop_rating to accept (None = accept any)
+            require_min_pop: minimum agent_rating to accept (None = accept any)
 
         Returns dict with:
             verified: bool
@@ -117,7 +119,7 @@ class AEAPClient:
         # Step 1 — get nonce
         try:
             nonce_resp = requests.get(
-                f"{self.platform_url}/v1/verify/challenge",
+                f"{self.operator_url}/v1/verify/challenge",
                 timeout=5
             )
             nonce = nonce_resp.json()['nonce']
@@ -141,12 +143,12 @@ class AEAPClient:
             }
 
         if require_min_pop is not None:
-            pop = status.get('pop_rating')
+            pop = status.get('agent_rating')
             if pop is None or pop < require_min_pop:
                 return {
                     'verified': False,
                     'reason': 'rating_below_threshold',
-                    'pop_rating': pop,
+                    'agent_rating': pop,
                     'required': require_min_pop
                 }
 
@@ -176,11 +178,11 @@ class AEAPClient:
 
         Returns dict with verified: bool, reason, and claims if verified.
         """
-        # Verify certificate via platform (could also be done locally
-        # with CA public key — platform endpoint used here for simplicity)
+        # Verify certificate via the Operator (could also be done locally
+        # with CA public key — Operator endpoint used here for simplicity)
         try:
             cert_resp = requests.post(
-                f"{self.platform_url}/v1/verify/certificate",
+                f"{self.operator_url}/v1/verify/certificate",
                 json={'certificate': certificate_jwt},
                 timeout=5
             )
@@ -191,10 +193,10 @@ class AEAPClient:
         if not cert_data.get('valid'):
             return {'verified': False, 'reason': cert_data.get('reason', 'invalid_certificate')}
 
-        # Verify challenge response via platform
+        # Verify challenge response via the Operator
         try:
             proof_resp = requests.post(
-                f"{self.platform_url}/v1/verify/proof",
+                f"{self.operator_url}/v1/verify/proof",
                 json={
                     'proof_type': 'challenge_response',
                     'certificate': certificate_jwt,
@@ -284,13 +286,13 @@ class AEAPClient:
                     'X-AEAP-Certificate, X-AEAP-Proof, and '
                     'X-AEAP-Timestamp headers required'
                 ),
-                'enrollment_url': 'https://api.aeap.ai/v1/enroll',
+                'enrollment_url': 'https://api.nustro.ai/v1/enroll',
             }
 
         # Verify certificate
         try:
             cert_resp = requests.post(
-                f"{self.platform_url}/v1/verify/certificate",
+                f"{self.operator_url}/v1/verify/certificate",
                 json={'certificate': certificate},
                 timeout=5
             )
@@ -306,7 +308,7 @@ class AEAPClient:
         # Verify bound proof
         try:
             proof_resp = requests.post(
-                f"{self.platform_url}/v1/verify/proof",
+                f"{self.operator_url}/v1/verify/proof",
                 json={
                     'proof_type': 'bound_proof',
                     'certificate': certificate,
@@ -337,14 +339,14 @@ class AEAPClient:
             'cert_tier': cert_data.get('cert_tier'),
             'economic_role': cert_data.get('economic_role'),
             'environment': status.get('environment'),
-            'pop_rating': status.get('pop_rating'),
+            'agent_rating': status.get('agent_rating'),
         }
 
     # ── Status endpoint ──────────────────────────────────────────────────────
 
     def _get_status(self, agent_did: str) -> dict:
         """
-        Fetch agent status from platform. Simple in-memory cache with TTL.
+        Fetch agent status from the Operator. Simple in-memory cache with TTL.
         In production, use Redis or similar for shared cache across workers.
         """
         import time
@@ -356,7 +358,7 @@ class AEAPClient:
 
         try:
             resp = requests.get(
-                f"{self.platform_url}/v1/agents/{agent_did}/status",
+                f"{self.operator_url}/v1/agents/{agent_did}/status",
                 timeout=5
             )
             if resp.status_code == 200:
@@ -390,7 +392,7 @@ class AEAPClient:
 
         return {
             'agent_id': self.agent_did,
-            'aid_url': f"{self.platform_url}/v1/agents/{self.agent_did}/aid",
+            'aid_url': f"{self.operator_url}/v1/agents/{self.agent_did}/aid",
             'certificate': self.certificate_jwt,
             'economic_role': aeap_claims.get('economic_role'),
             'capabilities': aeap_claims.get('capabilities', []),

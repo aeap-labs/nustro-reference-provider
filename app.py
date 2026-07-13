@@ -1,32 +1,32 @@
 """
-AEAP Reference Provider Agent
+Nustro Reference Provider Agent
 ==============================
 Version: 0.5.0
-Protocol: AEAP (Autonomous Economic Agent Protocol)
+Protocol: AEA/P (Autonomous Economic Agent Protocol)
 
-This file demonstrates how a Provider agent integrates with the AEAP Platform.
+This file demonstrates how a Provider agent integrates with the Nustro Operator.
 It is a complete, runnable Flask application — not a tutorial or pseudocode.
 
 WHAT THIS DEMONSTRATES
 -----------------------
-The AEAP payment flow from the Provider side:
+The AEA/P payment flow from the Provider side:
 
-  Phase 1 — AEAP mutual authentication
+  Phase 1 — AEA/P mutual authentication
     Consumer fetches the Provider's discovery document and verifies its
-    identity using the AEAP CA certificate before sending any money.
+    identity using the Nustro CA certificate before sending any money.
 
   Phase 2 — Payment negotiation (402 Payment Required)
     Consumer calls GET /research. Provider returns HTTP 402 with complete
-    AEAPSettlement.pay() instructions. No wallet addresses are exchanged —
-    the consumer pays the AEAPSettlement contract directly.
+    NustroSettlement.pay() instructions. No wallet addresses are exchanged —
+    the consumer pays the NustroSettlement contract directly.
 
   Phase 4 — Service call with payment proof
     Consumer calls POST /research with:
-      - AEAP bound proof headers (proves Consumer identity)
+      - AEA/P bound proof headers (proves Consumer identity)
       - X-AEAP-Payment-Tx header (proves payment was submitted on-chain)
 
-  Phase 5 — Facilitation (platform verifies payment)
-    Provider calls POST /v1/facilitate. The AEAP Platform reads the
+  Phase 5 — Facilitation (Operator verifies payment)
+    Provider calls POST /v1/facilitate. The Nustro Operator reads the
     on-chain Settled event, verifies both DID hashes, updates escrow
     balances, and creates a PoP task record.
 
@@ -52,16 +52,16 @@ See .env.example for all required variables with descriptions.
 ENDPOINTS
 ----------
   GET  /.well-known/aeap           — discovery document (public)
-  POST /.well-known/aeap/challenge — respond to AEAP challenge (public)
+  POST /.well-known/aeap/challenge — respond to AEA/P challenge (public)
   GET  /research                   — returns 402 with payment instructions
   POST /research                   — protected service (requires payment proof)
   GET  /health                     — health check (public)
 
-AEAP DOCUMENTATION
+NUSTRO DOCUMENTATION
 -------------------
-  Platform API:     https://api.aeap.ai/swagger
-  Protocol spec:    https://aeap.ai/docs
-  Sandbox:          https://provider.sandbox.aeap.ai
+  Nustro API:     https://api.nustro.ai/docs
+  Protocol spec:    https://docs.aeap.dev
+  Sandbox:          http://localhost:5001
 """
 
 import json
@@ -80,17 +80,17 @@ from aeap_client import AEAPClient
 app = Flask(__name__)
 
 # ── Agent configuration ────────────────────────────────────────────────────────
-# PROVIDER_DID: your agent's DID, issued by the AEAP Platform at registration.
+# PROVIDER_DID: your agent's DID, issued by the Nustro Operator at registration.
 # Replace with your own DID — do NOT use this DID in production.
 PROVIDER_DID = os.environ.get('PROVIDER_DID', 'did:aeap:4ad3c2d3-a658-4793-8c5a-75eae395a053')
 
 # BASE_URL: the public URL of this Provider service.
 # Used in the discovery document so Consumers know where to challenge you.
-BASE_URL = os.environ.get('PROVIDER_BASE_URL', 'https://provider.sandbox.aeap.ai')
+BASE_URL = os.environ.get('PROVIDER_BASE_URL', 'http://localhost:5001')
 
-# PLATFORM_URL: the AEAP Platform API base URL.
-# Sandbox and production share the same platform.
-PLATFORM_URL = 'https://api.aeap.ai'
+# OPERATOR_URL: the Nustro Operator API base URL.
+# Sandbox and production share the same Operator.
+OPERATOR_URL = os.environ.get('OPERATOR_URL', 'https://api.nustro.ai')
 
 # ── Payment configuration ──────────────────────────────────────────────────────
 # PAYMENT_MARKET: the market this Provider accepts payments in.
@@ -98,7 +98,7 @@ PLATFORM_URL = 'https://api.aeap.ai'
 PAYMENT_MARKET = os.environ.get('PAYMENT_MARKET', 'US-USDC')
 
 # PAYMENT_NETWORK: the blockchain network to accept payments on.
-# Must match one of the networks registered in the AEAP Platform.
+# Must match one of the networks registered in the Nustro Operator.
 PAYMENT_NETWORK = os.environ.get('PAYMENT_NETWORK', 'base-sepolia')
 
 # SERVICE_PRICE: price of one service call in token base units.
@@ -109,9 +109,9 @@ SERVICE_PRICE = int(os.environ.get('SERVICE_PRICE', '1000000'))  # 1.00 USDC
 # ── AEAPClient setup ───────────────────────────────────────────────────────────
 # AEAPClient handles:
 #   - Signing challenge responses (Phase 1)
-#   - Generating bound proof headers (for calls TO the platform)
+#   - Generating bound proof headers (for calls TO the Operator)
 #   - Verifying incoming Consumer certificates and bound proofs (Phase 4)
-#   - Fetching the Provider's own status from the platform
+#   - Fetching the Provider's own status from the Operator
 #
 # Keys are generated at agent registration time.
 # Store private_key.pem securely — it cannot be recovered if lost.
@@ -119,34 +119,37 @@ client = AEAPClient(
     agent_did        = PROVIDER_DID,
     private_key_path = os.path.join(os.path.dirname(__file__), 'keys', 'private_key.pem'),
     certificate_path = os.path.join(os.path.dirname(__file__), 'keys', 'certificate.jwt'),
-    platform_url     = PLATFORM_URL,
+    operator_url     = OPERATOR_URL,
 )
 
 # ── Payment address cache ──────────────────────────────────────────────────────
-# The AEAPSettlement contract address and token address are stable between
-# upgrades — we cache them to avoid a platform call on every 402 response.
+# The NustroSettlement contract address and token address are stable between
+# upgrades — we cache them to avoid a Operator call on every 402 response.
 # The cache is invalidated on process restart, which is acceptable.
 _payment_address_cache = {}
 
 
-def _get_payment_address(consumer_did: str = None) -> dict | None:
+def _get_payment_address(consumer_did: str = None, amount_whole=None) -> dict | None:
     """
-    Fetch the AEAPSettlement contract address and ERC-20 token address
-    from the AEAP Platform for this market/network combination.
+    Fetch the NustroSettlement contract address and ERC-20 token address
+    from the Nustro Operator for this market/network combination.
 
     The contract/token details are cached in memory after the first fetch.
-    When consumer_did is provided, a fresh request is made to create a
-    payment_intent record on the platform. Payment intents track whether
-    the Consumer completes the payment — abandoned intents reduce the
-    Consumer's payment_timeliness PoP signal.
+    When consumer_did is provided, a fresh request mints a payment intent —
+    the Operator first enforces the consumer's spend policy at intent creation,
+    so we must also send `amount` (the quoted price, in WHOLE currency units)
+    and our own `provider_did` (for the consumer's counterparty-floor checks).
 
     Returns a dict with: contract, token, chain_id, currency, decimals
-    and optionally: intent_id, expires_at (when consumer_did is provided).
-    Returns None if the platform is unreachable or the config is missing.
+    and optionally intent_id, expires_at (when consumer_did is provided). On a
+    spend-policy refusal the Operator answers 403; we return
+    {'spend_refused': <detail>} so the caller relays the refusal to the
+    consumer instead of a 402. Returns None if the Operator is unreachable.
     """
     market  = os.environ.get('PAYMENT_MARKET', PAYMENT_MARKET)
     network = os.environ.get('PAYMENT_NETWORK', PAYMENT_NETWORK)
-    key     = os.environ.get('AEAP_PRINCIPAL_KEY', '')
+    key     = os.environ.get('NUSTRO_PRINCIPAL_KEY', '')
+    provider_did = os.environ.get('PROVIDER_DID', PROVIDER_DID)
 
     cache_key = f"{market}:{network}"
 
@@ -154,9 +157,9 @@ def _get_payment_address(consumer_did: str = None) -> dict | None:
     if cache_key not in _payment_address_cache:
         try:
             resp = http_requests.get(
-                f"{PLATFORM_URL}/v1/payment-address",
+                f"{OPERATOR_URL}/v1/payment-address",
                 params  = {'market': market, 'network': network},
-                headers = {'X-AEAP-Principal-Key': key},
+                headers = {'Nustro-Principal-Key': key},
                 timeout = 10,
             )
             print(f"[PAYMENT] payment-address fetch: status={resp.status_code}", flush=True)
@@ -169,21 +172,32 @@ def _get_payment_address(consumer_did: str = None) -> dict | None:
 
     base = _payment_address_cache.get(cache_key)
     if not base:
-        return None  # Platform unreachable or misconfigured
+        return None  # Operator unreachable or misconfigured
 
     # If consumer_did is provided, make a fresh request to auto-create a
-    # payment_intent on the platform. The intent expires in 5 minutes.
-    # If not paid within that window, it's marked ABANDONED by the platform.
+    # payment_intent on the Operator. The intent expires in 5 minutes.
+    # If not paid within that window, it's marked ABANDONED by the Operator.
     if consumer_did:
         try:
             resp = http_requests.get(
-                f"{PLATFORM_URL}/v1/payment-address",
-                params  = {'market': market, 'network': network, 'consumer_did': consumer_did},
-                headers = {'X-AEAP-Principal-Key': key},
+                f"{OPERATOR_URL}/v1/payment-address",
+                params  = {'market': market, 'network': network,
+                           'consumer_did': consumer_did,
+                           'amount': (str(amount_whole) if amount_whole is not None else None),
+                           'provider_did': provider_did},
+                headers = {'Nustro-Principal-Key': key},
                 timeout = 10,
             )
             if resp.status_code == 200:
                 return resp.json()  # Includes intent_id + expires_at
+            if resp.status_code == 403:
+                # Operator refused the intent on the consumer's spend policy.
+                try:
+                    detail = resp.json().get('detail') or {}
+                except Exception:
+                    detail = {}
+                print(f"[PAYMENT] intent refused (spend policy): {detail}", flush=True)
+                return {'spend_refused': detail}
         except Exception as e:
             print(f"[PAYMENT] intent creation failed: {e}", flush=True)
             # Fall through to cached data — intent creation is optional
@@ -193,10 +207,10 @@ def _get_payment_address(consumer_did: str = None) -> dict | None:
 
 def _get_provider_did_hash() -> str:
     """
-    Compute keccak256(provider_did) — required by AEAPSettlement.pay().
+    Compute keccak256(provider_did) — required by NustroSettlement.pay().
 
     The Consumer includes this in their on-chain pay() call so the
-    AEAPSettlement contract can look up the Provider's registered wallets
+    NustroSettlement contract can look up the Provider's registered wallets
     (operational, escrow) and split the payment correctly.
     """
     from web3 import Web3
@@ -204,7 +218,7 @@ def _get_provider_did_hash() -> str:
 
 
 # ── Discovery endpoints ────────────────────────────────────────────────────────
-# These are the AEAP standard well-known endpoints. Every AEAP Provider
+# These are the AEA/P standard well-known endpoints. Every AEA/P Provider
 # MUST implement them. Consumers call these before sending any request.
 
 @app.route('/.well-known/aeap', methods=['GET'])
@@ -214,11 +228,11 @@ def discovery():
 
     Returns the Provider's AID (Agent Identity Document) containing:
       - The Provider's DID and certificate
-      - Where to send AEAP challenges (Phase 1)
+      - Where to send AEA/P challenges (Phase 1)
       - The Provider's economic role, capabilities, and escrow state
 
     Consumers fetch this to verify they're talking to a legitimate
-    AEAP-certified agent before initiating payment.
+    AEA/P-certified agent before initiating payment.
     """
     return jsonify(
         client.discovery_document(
@@ -234,10 +248,10 @@ def challenge():
 
     The Consumer sends a random nonce. The Provider signs it with its
     EC private key and returns the signature alongside its certificate JWT.
-    The Consumer verifies the signature offline (no platform call needed).
+    The Consumer verifies the signature offline (no Operator call needed).
 
     This proves the Provider controls the private key matching the
-    public key in its AEAP certificate — i.e., it is who it claims to be.
+    public key in its AEA/P certificate — i.e., it is who it claims to be.
 
     Request:  { "nonce": "..." }
     Response: { "certificate": "JWT...", "challenge_response": "EC sig...",
@@ -267,34 +281,48 @@ def research_payment_required():
 
     The Consumer calls GET /research first to discover:
       - How much to pay (amount in token base units)
-      - Which contract to call (AEAPSettlement address)
+      - Which contract to call (NustroSettlement address)
       - Which token to use (USDC contract address)
-      - The Provider's DID hash (required by AEAPSettlement.pay())
+      - The Provider's DID hash (required by NustroSettlement.pay())
       - When the quote expires (Consumer must pay before this time)
 
     The Consumer then:
       1. Approves the ERC-20 token spend (token.approve)
-      2. Calls AEAPSettlement.pay() on-chain
+      2. Calls NustroSettlement.pay() on-chain
       3. Calls POST /research with the tx_hash as proof
 
     IMPORTANT: We return the Provider DID hash, NOT a wallet address.
-    The Consumer pays the AEAPSettlement contract — it handles routing
+    The Consumer pays the NustroSettlement contract — it handles routing
     funds to the Provider's operational wallet, escrow wallet, and
-    the AEAP fee wallet atomically. The Provider never receives raw payments.
+    the Nustro fee wallet atomically. The Provider never receives raw payments.
 
     If consumer_did is passed as a query param, a payment intent is created
-    on the platform so Consumer abandonment can be tracked for PoP rating.
+    on the Operator so Consumer abandonment can be tracked for PoP rating.
     """
-    # Consumer may pass their DID so we can create a payment intent
+    # Consumer passes their DID so the Operator can spend-check + mint an intent.
     consumer_did = request.args.get('consumer_did', '') or None
 
-    payment_addr = _get_payment_address(consumer_did=consumer_did)
+    # Quoted price in WHOLE currency units (the Operator enforces the consumer's
+    # spend policy against this). SERVICE_PRICE is in token base units.
+    decimals    = 6
+    amount_whole = SERVICE_PRICE / (10 ** decimals)
+
+    payment_addr = _get_payment_address(consumer_did=consumer_did, amount_whole=amount_whole)
     if not payment_addr:
-        # Platform unreachable — return 503 so Consumer can retry
+        # Operator unreachable — return 503 so Consumer can retry
         return jsonify({
             'error':   'payment_config_unavailable',
             'message': 'Provider payment configuration is temporarily unavailable.',
         }), 503
+
+    # The Operator refused the intent on the consumer's spend policy — relay it
+    # to the consumer (no 402; the consumer's principal must widen its scope).
+    if payment_addr.get('spend_refused') is not None:
+        return jsonify({
+            'error':   'spend_policy_violation',
+            'message': 'The Operator refused this payment under the consumer spend policy.',
+            'detail':  payment_addr['spend_refused'],
+        }), 403
 
     import datetime
     # Quote expires in 5 minutes — Consumer must pay before this time.
@@ -333,18 +361,18 @@ def research():
 
     This endpoint does three things in sequence:
 
-    PHASE 4a — Verify Consumer identity (AEAP bound proof)
+    PHASE 4a — Verify Consumer identity (AEA/P bound proof)
       The Consumer includes X-AEAP-Certificate and X-AEAP-Proof headers.
-      We verify the certificate was signed by the AEAP CA and the proof
+      We verify the certificate was signed by the Nustro CA and the proof
       signature binds the Consumer's DID to this Provider's DID.
-      This is done OFFLINE — no platform call needed for verification.
+      This is done OFFLINE — no Operator call needed for verification.
 
     PHASE 4b — Verify payment proof header
       The Consumer includes X-AEAP-Payment-Tx: { tx_hash, network }.
       This is NOT on-chain verification — that happens in Phase 5.
 
-    PHASE 5 — Facilitation (platform verifies payment on-chain)
-      We call POST /v1/facilitate with the tx_hash. The AEAP Platform:
+    PHASE 5 — Facilitation (Operator verifies payment on-chain)
+      We call POST /v1/facilitate with the tx_hash. The Nustro Operator:
         - Reads the Settled event from the blockchain
         - Verifies the Provider DID hash matches our agent
         - Verifies the Consumer DID hash matches the verified Consumer
@@ -357,17 +385,17 @@ def research():
       _execute_research() is the placeholder — replace with real logic.
 
     Required headers:
-      X-AEAP-Certificate    — Consumer's AEAP certificate JWT
+      X-AEAP-Certificate    — Consumer's AEA/P certificate JWT
       X-AEAP-Proof          — EC signature: timestamp|caller_did|callee_did
       X-AEAP-Timestamp      — ISO 8601 timestamp (must be within 30 seconds)
       X-AEAP-Payment-Tx     — JSON: { "tx_hash": "0x...", "network": "..." }
 
     Request body: { "query": "..." }
     """
-    # Phase 4a: Verify Consumer AEAP identity
+    # Phase 4a: Verify Consumer AEA/P identity
     # verify_incoming() checks the certificate JWT signature against the
-    # AEAP CA public key and verifies the bound proof EC signature.
-    # Both are done offline — no platform round-trip needed.
+    # Nustro CA public key and verifies the bound proof EC signature.
+    # Both are done offline — no Operator round-trip needed.
     verification = client.verify_incoming(
         request_headers = request.headers,
         own_did         = PROVIDER_DID,
@@ -376,10 +404,10 @@ def research():
     if not verification['verified']:
         reason = verification.get('reason', 'verification_failed')
         if reason == 'missing_headers':
-            # Consumer didn't include AEAP headers — they need to pay first
+            # Consumer didn't include AEA/P headers — they need to pay first
             return jsonify({
                 'error':   'certificate_required',
-                'message': 'AEAP certification required. GET /research for payment instructions.',
+                'message': 'AEA/P certification required. GET /research for payment instructions.',
             }), 401
         return jsonify({'error': 'aeap_verification_failed', 'reason': reason}), 401
 
@@ -387,8 +415,8 @@ def research():
     print(f"[AUTH] Consumer verified: {consumer_did}", flush=True)
 
     # Phase 4b: Extract payment proof from header
-    # The Consumer provides the tx_hash from their AEAPSettlement.pay() call.
-    # We don't verify it here — the platform does that in Phase 5.
+    # The Consumer provides the tx_hash from their NustroSettlement.pay() call.
+    # We don't verify it here — the Operator does that in Phase 5.
     payment_tx_header = request.headers.get('X-AEAP-Payment-Tx')
     tx_hash    = None
     tx_network = None
@@ -411,9 +439,9 @@ def research():
         }), 402
 
     # Phase 5: Facilitation
-    # Tell the AEAP Platform about the payment. It reads the blockchain
+    # Tell the Nustro Operator about the payment. It reads the blockchain
     # event, verifies correctness, and creates the PoP task record.
-    # This is the only platform call in the service flow.
+    # This is the only Operator call in the service flow.
     print(f"[FACILITATE] tx={tx_hash} consumer={consumer_did}", flush=True)
     facilitation = _facilitate(
         consumer_did = consumer_did,
@@ -452,7 +480,7 @@ def research():
         'provider':             PROVIDER_DID,
         'consumer':             consumer_did,
         'consumer_environment': verification.get('environment', 'unknown'),
-        'consumer_pop_rating':  verification.get('pop_rating'),
+        'consumer_agent_rating': verification.get('agent_rating'),
         'verified':             True,
         'facilitation_id':      facilitation.get('facilitation_id'),
         'task_id':              facilitation.get('task_id'),
@@ -461,24 +489,24 @@ def research():
 
 def _facilitate(consumer_did: str, tx_hash: str, network: str) -> dict:
     """
-    POST /v1/facilitate — tell the AEAP Platform a payment occurred.
+    POST /v1/facilitate — tell the Nustro Operator a payment occurred.
 
-    The platform reads the AEAPSettlement Settled event from the blockchain,
+    The Operator reads the NustroSettlement Settled event from the blockchain,
     verifies all amounts and DID hashes, updates the Provider's escrow
     balance, and creates a PoP task record for the interaction.
 
-    This is the ONLY call where we send the tx_hash to the platform.
-    The platform never submits any transactions — it is always read-only.
+    This is the ONLY call where we send the tx_hash to the Operator.
+    The Operator never submits any transactions — it is always read-only.
 
     Returns a dict with success flag and facilitation details including
     task_id (None if same-principal — Sybil check prevents PoP gaming).
     """
-    principal_key = os.environ.get('AEAP_PRINCIPAL_KEY', '')
+    principal_key = os.environ.get('NUSTRO_PRINCIPAL_KEY', '')
     try:
         resp = http_requests.post(
-            f"{PLATFORM_URL}/v1/facilitate",
+            f"{OPERATOR_URL}/v1/facilitate",
             headers = {
-                'X-AEAP-Principal-Key': principal_key,
+                'Nustro-Principal-Key': principal_key,
                 'Content-Type':         'application/json',
             },
             json = {
@@ -527,7 +555,7 @@ def _execute_research(query: str) -> str:
     """
     return (
         f"Research result for: '{query}'. "
-        f"This is the AEAP reference Provider — payment verified via AEAPSettlement. "
+        f"This is the Nustro reference Provider — payment verified via NustroSettlement. "
         f"In production this would call an LLM, database, or external API."
     )
 
@@ -539,7 +567,7 @@ def health():
     """
     Health check endpoint.
 
-    Returns the Provider's current status from the AEAP Platform,
+    Returns the Provider's current status from the Nustro Operator,
     including escrow state and PoP rating. Useful for monitoring
     and debugging.
 

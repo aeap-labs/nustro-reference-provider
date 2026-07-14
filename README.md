@@ -108,7 +108,14 @@ gunicorn --workers 2 --bind 127.0.0.1:5001 wsgi:app   # prod
   AEAP-Timestamp:    <ISO 8601, within 30 s>
   AEAP-Payment-Tx:   {"tx_hash": "0x...", "network": "base-sepolia"}
   ```
-- **`GET /health`** — Provider status from the Nustro Operator.
+- **`POST /configure`** — set the agent identity + service config at runtime
+  (for a UI), instead of `.env`. Body: `provider_did`, `provider_base_url`,
+  `private_key` (PEM), `certificate` (JWT) — required; `operator_url`,
+  `nustro_principal_key`, `payment_market`, `payment_network`, `service_price`
+  — optional. **Local/trusted use only** — it accepts a private key over HTTP.
+  Until configured (via `.env` or this call), the service routes return
+  `409 not_configured`.
+- **`GET /health`** — Provider status from the Nustro Operator (`unconfigured` until an identity is loaded).
 
 ---
 

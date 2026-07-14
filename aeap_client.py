@@ -52,20 +52,28 @@ STATUS_CACHE_TTL = 30  # seconds
 
 class AEAPClient:
 
-    def __init__(self, agent_did, private_key_path, certificate_path,
-                 operator_url=OPERATOR_URL):
+    def __init__(self, agent_did, private_key_path=None, certificate_path=None,
+                 operator_url=OPERATOR_URL, private_key_pem=None, certificate_jwt=None):
+        """Identity may be supplied as file paths (startup, from keys/) OR as
+        in-memory content — private_key_pem (PEM string/bytes) + certificate_jwt
+        (JWT string) — which is how POST /configure passes a runtime identity."""
         self.agent_did = agent_did
         self.operator_url = operator_url
 
-        # Load private key
-        with open(private_key_path, 'rb') as f:
-            self.private_key = serialization.load_pem_private_key(
-                f.read(), password=None
-            )
+        # Load private key — from content if given, else from the file path.
+        if private_key_pem is not None:
+            pem = private_key_pem.encode('utf-8') if isinstance(private_key_pem, str) else private_key_pem
+            self.private_key = serialization.load_pem_private_key(pem, password=None)
+        else:
+            with open(private_key_path, 'rb') as f:
+                self.private_key = serialization.load_pem_private_key(f.read(), password=None)
 
-        # Load certificate JWT
-        with open(certificate_path, 'r') as f:
-            self.certificate_jwt = f.read().strip()
+        # Load certificate JWT — from content if given, else from the file path.
+        if certificate_jwt is not None:
+            self.certificate_jwt = certificate_jwt.strip()
+        else:
+            with open(certificate_path, 'r') as f:
+                self.certificate_jwt = f.read().strip()
 
         # Simple in-memory status cache
         self._status_cache = {}

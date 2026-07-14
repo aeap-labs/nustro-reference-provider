@@ -115,12 +115,98 @@ SERVICE_PRICE = int(os.environ.get('SERVICE_PRICE', '1000000'))  # 1.00 USDC
 #
 # Keys are generated at agent registration time.
 # Store private_key.pem securely — it cannot be recovered if lost.
-client = AEAPClient(
-    agent_did        = PROVIDER_DID,
-    private_key_path = os.path.join(os.path.dirname(__file__), 'keys', 'private_key.pem'),
-    certificate_path = os.path.join(os.path.dirname(__file__), 'keys', 'certificate.jwt'),
-    operator_url     = OPERATOR_URL,
+# Build the client from keys/ at startup IF a DID + key files are present;
+# otherwise stay unconfigured until POST /configure supplies an identity — so
+# the app boots for a UI-driven demo with no .env.
+def _build_client(agent_did, key_path, cert_path, operator_url):
+    try:
+        if agent_did and os.path.exists(key_path) and os.path.exists(cert_path):
+            return AEAPClient(agent_did=agent_did, private_key_path=key_path,
+                              certificate_path=cert_path, operator_url=operator_url)
+    except Exception as e:
+        print(f"[CONFIG] startup identity not loaded: {e}", flush=True)
+    return None
+
+client = _build_client(
+    PROVIDER_DID,
+    os.path.join(os.path.dirname(__file__), 'keys', 'private_key.pem'),
+    os.path.join(os.path.dirname(__file__), 'keys', 'certificate.jwt'),
+    OPERATOR_URL,
 )
+
+
+@app.before_request
+def _gate_unconfigured():
+    """Block the service routes until an identity is loaded. /configure and
+    /health stay open so the UI can configure and poll readiness."""
+    if client is None and request.endpoint not in ('configure', 'health', 'static'):
+        return jsonify({'error': 'not_configured',
+                        'message': 'No agent identity loaded. POST /configure first.'}), 409
+
+
+@app.route('/configure', methods=['POST'])
+def configure():
+    """Set this agent's identity + service config at runtime (for the demo UI),
+    instead of reading .env at startup.
+
+    Body: provider_did, provider_base_url, private_key (PEM), certificate (JWT)
+    — required; operator_url, nustro_principal_key, payment_market,
+    payment_network, service_price — optional.
+
+    LOCAL / TRUSTED DEMO USE ONLY: this accepts an agent private key over HTTP.
+    Never expose it on an untrusted network.
+    """
+    global PROVIDER_DID, BASE_URL, OPERATOR_URL, PAYMENT_MARKET, PAYMENT_NETWORK, SERVICE_PRICE, client
+    data = request.get_json(silent=True) or {}
+
+    required = ['provider_did', 'provider_base_url', 'private_key', 'certificate']
+    missing  = [k for k in required if not (data.get(k) or '').strip()]
+    if missing:
+        return jsonify({'error': 'missing_fields', 'missing': missing}), 400
+
+    operator_url = (data.get('operator_url') or OPERATOR_URL).strip()
+    try:
+        new_client = AEAPClient(
+            agent_did=data['provider_did'].strip(),
+            private_key_pem=data['private_key'],
+            certificate_jwt=data['certificate'],
+            operator_url=operator_url,
+        )
+    except Exception as e:
+        return jsonify({'error': 'invalid_identity',
+                        'message': f'Could not load key/certificate: {e}'}), 400
+
+    PROVIDER_DID    = data['provider_did'].strip()
+    BASE_URL        = data['provider_base_url'].strip()
+    OPERATOR_URL    = operator_url
+    client          = new_client
+    if (data.get('payment_market') or '').strip():
+        PAYMENT_MARKET = data['payment_market'].strip()
+    if (data.get('payment_network') or '').strip():
+        PAYMENT_NETWORK = data['payment_network'].strip()
+    if data.get('service_price') is not None:
+        try:
+            SERVICE_PRICE = int(data['service_price'])
+        except (TypeError, ValueError):
+            return jsonify({'error': 'invalid_service_price'}), 400
+
+    os.environ['PROVIDER_DID']    = PROVIDER_DID
+    os.environ['PAYMENT_MARKET']  = PAYMENT_MARKET
+    os.environ['PAYMENT_NETWORK'] = PAYMENT_NETWORK
+    if (data.get('nustro_principal_key') or '').strip():
+        os.environ['NUSTRO_PRINCIPAL_KEY'] = data['nustro_principal_key'].strip()
+    _payment_address_cache.clear()   # market/network may have changed
+
+    return jsonify({
+        'status':            'configured',
+        'provider_did':      PROVIDER_DID,
+        'provider_base_url': BASE_URL,
+        'operator_url':      OPERATOR_URL,
+        'payment_market':    PAYMENT_MARKET,
+        'payment_network':   PAYMENT_NETWORK,
+        'service_price':     SERVICE_PRICE,
+        'principal_key_set': bool(os.environ.get('NUSTRO_PRINCIPAL_KEY')),
+    }), 200
 
 # ── Payment address cache ──────────────────────────────────────────────────────
 # The NustroSettlement contract address and token address are stable between
@@ -574,6 +660,9 @@ def health():
     settlement_contract will show 'not cached' until the first
     GET /research call populates the payment address cache.
     """
+    if client is None:
+        return jsonify({'status': 'unconfigured', 'role': 'PROVIDER',
+                        'message': 'POST /configure to load an agent identity.'})
     status       = client.get_own_status()
     payment_addr = _payment_address_cache.get(f"{PAYMENT_MARKET}:{PAYMENT_NETWORK}")
     return jsonify({

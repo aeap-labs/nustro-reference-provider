@@ -239,15 +239,15 @@ class AEAPClient:
         proof = self.sign(message)
 
         return {
-            'X-AEAP-Certificate': self.certificate_jwt,
-            'X-AEAP-Proof': proof,
-            'X-AEAP-Timestamp': timestamp,
+            'AEAP-Certificate': self.certificate_jwt,
+            'AEAP-Proof': proof,
+            'AEAP-Timestamp': timestamp,
         }
 
     def get_challenge_response_headers(self, nonce: str) -> dict:
         """
         Generate headers responding to a challenge (Phase 1, server side).
-        Called when a counterparty has sent us X-AEAP-Challenge.
+        Called when a counterparty has sent us AEAP-Challenge.
 
         Returns headers dict to include in the response.
         """
@@ -256,16 +256,16 @@ class AEAPClient:
         response_sig = self.sign(message)
 
         return {
-            'X-AEAP-Certificate': self.certificate_jwt,
-            'X-AEAP-Challenge-Response': response_sig,
-            'X-AEAP-Timestamp': timestamp,
+            'AEAP-Certificate': self.certificate_jwt,
+            'AEAP-Challenge-Response': response_sig,
+            'AEAP-Timestamp': timestamp,
         }
 
     def verify_incoming(self, request_headers: dict, own_did: str) -> dict:
         """
         Verify an incoming request from a caller (Phase 2, server side).
 
-        Checks X-AEAP-Certificate + X-AEAP-Proof + X-AEAP-Timestamp headers.
+        Checks AEAP-Certificate + AEAP-Proof + AEAP-Timestamp headers.
         Verifies the bound proof contains our own DID.
 
         Args:
@@ -274,17 +274,17 @@ class AEAPClient:
 
         Returns dict with verified: bool, reason, caller info if verified.
         """
-        certificate = request_headers.get('X-AEAP-Certificate')
-        proof = request_headers.get('X-AEAP-Proof')
-        timestamp = request_headers.get('X-AEAP-Timestamp')
+        certificate = request_headers.get('AEAP-Certificate')
+        proof = request_headers.get('AEAP-Proof')
+        timestamp = request_headers.get('AEAP-Timestamp')
 
         if not certificate or not proof or not timestamp:
             return {
                 'verified': False,
                 'reason': 'missing_headers',
                 'message': (
-                    'X-AEAP-Certificate, X-AEAP-Proof, and '
-                    'X-AEAP-Timestamp headers required'
+                    'AEAP-Certificate, AEAP-Proof, and '
+                    'AEAP-Timestamp headers required'
                 ),
                 'enrollment_url': 'https://api.nustro.ai/v1/enroll',
             }

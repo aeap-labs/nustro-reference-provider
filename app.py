@@ -23,7 +23,7 @@ The AEA/P payment flow from the Provider side:
   Phase 4 — Service call with payment proof
     Consumer calls POST /research with:
       - AEA/P bound proof headers (proves Consumer identity)
-      - X-AEAP-Payment-Tx header (proves payment was submitted on-chain)
+      - AEAP-Payment-Tx header (proves payment was submitted on-chain)
 
   Phase 5 — Facilitation (Operator verifies payment)
     Provider calls POST /v1/facilitate. The Nustro Operator reads the
@@ -265,9 +265,9 @@ def challenge():
     headers = client.get_challenge_response_headers(nonce)
 
     return jsonify({
-        'certificate':        headers['X-AEAP-Certificate'],
-        'challenge_response': headers['X-AEAP-Challenge-Response'],
-        'timestamp':          headers['X-AEAP-Timestamp'],
+        'certificate':        headers['AEAP-Certificate'],
+        'challenge_response': headers['AEAP-Challenge-Response'],
+        'timestamp':          headers['AEAP-Timestamp'],
         'agent_id':           PROVIDER_DID,
     })
 
@@ -362,13 +362,13 @@ def research():
     This endpoint does three things in sequence:
 
     PHASE 4a — Verify Consumer identity (AEA/P bound proof)
-      The Consumer includes X-AEAP-Certificate and X-AEAP-Proof headers.
+      The Consumer includes AEAP-Certificate and AEAP-Proof headers.
       We verify the certificate was signed by the Nustro CA and the proof
       signature binds the Consumer's DID to this Provider's DID.
       This is done OFFLINE — no Operator call needed for verification.
 
     PHASE 4b — Verify payment proof header
-      The Consumer includes X-AEAP-Payment-Tx: { tx_hash, network }.
+      The Consumer includes AEAP-Payment-Tx: { tx_hash, network }.
       This is NOT on-chain verification — that happens in Phase 5.
 
     PHASE 5 — Facilitation (Operator verifies payment on-chain)
@@ -385,10 +385,10 @@ def research():
       _execute_research() is the placeholder — replace with real logic.
 
     Required headers:
-      X-AEAP-Certificate    — Consumer's AEA/P certificate JWT
-      X-AEAP-Proof          — EC signature: timestamp|caller_did|callee_did
-      X-AEAP-Timestamp      — ISO 8601 timestamp (must be within 30 seconds)
-      X-AEAP-Payment-Tx     — JSON: { "tx_hash": "0x...", "network": "..." }
+      AEAP-Certificate    — Consumer's AEA/P certificate JWT
+      AEAP-Proof          — EC signature: timestamp|caller_did|callee_did
+      AEAP-Timestamp      — ISO 8601 timestamp (must be within 30 seconds)
+      AEAP-Payment-Tx     — JSON: { "tx_hash": "0x...", "network": "..." }
 
     Request body: { "query": "..." }
     """
@@ -417,7 +417,7 @@ def research():
     # Phase 4b: Extract payment proof from header
     # The Consumer provides the tx_hash from their NustroSettlement.pay() call.
     # We don't verify it here — the Operator does that in Phase 5.
-    payment_tx_header = request.headers.get('X-AEAP-Payment-Tx')
+    payment_tx_header = request.headers.get('AEAP-Payment-Tx')
     tx_hash    = None
     tx_network = None
 
@@ -429,13 +429,13 @@ def research():
         except Exception:
             return jsonify({
                 'error':   'invalid_payment_header',
-                'message': 'X-AEAP-Payment-Tx must be valid JSON: { "tx_hash": "0x...", "network": "..." }',
+                'message': 'AEAP-Payment-Tx must be valid JSON: { "tx_hash": "0x...", "network": "..." }',
             }), 400
 
     if not tx_hash:
         return jsonify({
             'error':   'payment_required',
-            'message': 'Payment required. GET /research for payment instructions, then include X-AEAP-Payment-Tx.',
+            'message': 'Payment required. GET /research for payment instructions, then include AEAP-Payment-Tx.',
         }), 402
 
     # Phase 5: Facilitation

@@ -9,7 +9,7 @@ agent, integrated with the **Nustro** API. It handles mutual authentication,
 payment negotiation, on-chain payment verification, and PoP task creation.
 
 > This is a **Nustro** reference tool. The product/operator surface is Nustro;
-> the wire protocol it speaks — `did:aeap:` identifiers, `X-AEAP-*` handshake
+> the wire protocol it speaks — `did:aeap:` identifiers, `AEAP-*` handshake
 > headers, `.well-known/aeap` discovery — is **AEA/P** and is left as protocol
 > surface on purpose.
 
@@ -103,10 +103,10 @@ gunicorn --workers 2 --bind 127.0.0.1:5001 wsgi:app   # prod
 - **`GET /research?consumer_did=…`** — `402` with payment instructions (contract, token, amount, `provider_did_hash`, `expires_at`), or `403 spend_policy_violation` when the Operator refuses the consumer's spend policy.
 - **`POST /research`** — protected service. Required headers:
   ```
-  X-AEAP-Certificate:  <JWT from the challenge response>
-  X-AEAP-Proof:        <EC signature over timestamp|caller_did|callee_did>
-  X-AEAP-Timestamp:    <ISO 8601, within 30 s>
-  X-AEAP-Payment-Tx:   {"tx_hash": "0x...", "network": "base-sepolia"}
+  AEAP-Certificate:  <JWT from the challenge response>
+  AEAP-Proof:        <EC signature over timestamp|caller_did|callee_did>
+  AEAP-Timestamp:    <ISO 8601, within 30 s>
+  AEAP-Payment-Tx:   {"tx_hash": "0x...", "network": "base-sepolia"}
   ```
 - **`GET /health`** — Provider status from the Nustro Operator.
 

@@ -119,6 +119,7 @@
           <div class="probe"><span class="dot" id="d_cfg"></span>Identity loaded<span class="v" id="v_cfg">—</span></div>
           <div class="probe"><span class="dot" id="d_agent"></span>Agent status<span class="v" id="v_agent">—</span></div>
           <div class="probe"><span class="dot" id="d_env"></span>Environment<span class="v" id="v_env">—</span></div>
+          <div class="probe"><span class="dot" id="d_key"></span>Principal key<span class="v" id="v_key">—</span></div>
           <div class="probe"><span class="dot" id="d_escrow"></span>Escrow<span class="v" id="v_escrow">—</span></div>
           <div class="probe"><span class="dot" id="d_price"></span>Price<span class="v" id="v_price">—</span></div>
         </div>
@@ -188,18 +189,24 @@ async function refresh(){
     const d = await (await fetch('/health')).json();
     if(d.status === 'unconfigured'){
       setProbe('cfg','bad','not loaded');
-      ['agent','env','escrow','price'].forEach(k=>setProbe(k,'','—'));
+      ['agent','env','key','escrow','price'].forEach(k=>setProbe(k,'','—'));
       $('ready-note').textContent = 'Configure this agent to start serving.';
       return;
     }
     setProbe('cfg','ok', d.agent_id ? d.agent_id.slice(0,22)+'…' : 'loaded');
     setProbe('agent', d.agent_status==='ACTIVE'?'ok':'bad', d.agent_status);
     setProbe('env', d.environment==='production'?'ok':'warn', d.environment);
+    setProbe('key', d.principal_key_set?'ok':'bad',
+             d.principal_key_set?'set':'missing — cannot mint a payment intent');
     setProbe('escrow', d.escrow_state==='ACTIVE'?'ok':'warn', d.escrow_state);
     setProbe('price','ok', (d.service_price_usdc ?? '?') + ' USDC · ' + (d.payment_network||''));
-    $('ready-note').textContent = d.environment === 'production'
-      ? 'Serving. Drive a run from the Consumer console.'
-      : 'Serving in ' + d.environment + '. Note: on-chain settlement requires both agents in production.';
+    // The principal key is the hard blocker: without it every 402 attempt 401s
+    // at the Operator and the Consumer's run dies at the quote step.
+    $('ready-note').textContent = !d.principal_key_set
+      ? 'No principal key — the Operator will reject the payment intent and runs will fail at the 402 step. Add it above.'
+      : (d.environment === 'production'
+          ? 'Serving. Drive a run from the Consumer console.'
+          : 'Serving in ' + d.environment + '. Note: on-chain settlement requires both agents in production.');
   }catch(e){ setProbe('cfg','bad','app unreachable'); }
 }
 

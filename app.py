@@ -236,12 +236,22 @@ def _get_payment_address(consumer_did: str = None, amount_whole=None) -> dict | 
     and optionally intent_id, expires_at (when consumer_did is provided). On a
     spend-policy refusal the Operator answers 403; we return
     {'spend_refused': <detail>} so the caller relays the refusal to the
-    consumer instead of a 402. Returns None if the Operator is unreachable.
+    consumer instead of a 402.
+
+    On failure returns {'unavailable': <reason>} — a human-readable reason the
+    caller surfaces to the consumer, instead of a bare None that says nothing.
     """
     market  = os.environ.get('PAYMENT_MARKET', PAYMENT_MARKET)
     network = os.environ.get('PAYMENT_NETWORK', PAYMENT_NETWORK)
     key     = os.environ.get('NUSTRO_PRINCIPAL_KEY', '')
     provider_did = os.environ.get('PROVIDER_DID', PROVIDER_DID)
+
+    # Fail fast with a precise reason: without a principal key the Operator will
+    # 401 every payment-address call, so no intent can ever be minted.
+    if not key:
+        return {'unavailable': 'No NUSTRO_PRINCIPAL_KEY configured on this Provider — '
+                               'the Operator will reject the payment-intent request. '
+                               'Set it via POST /configure or .env.'}
 
     cache_key = f"{market}:{network}"
 
@@ -258,13 +268,21 @@ def _get_payment_address(consumer_did: str = None, amount_whole=None) -> dict | 
             if resp.status_code == 200:
                 _payment_address_cache[cache_key] = resp.json()
             else:
-                print(f"[PAYMENT] fetch failed: {resp.text[:100]}", flush=True)
+                print(f"[PAYMENT] fetch failed: {resp.text[:200]}", flush=True)
+                try:
+                    body = resp.json()
+                    msg = body.get('message') or body.get('error') or resp.text[:120]
+                except Exception:
+                    msg = resp.text[:120]
+                return {'unavailable': f"Operator rejected the payment-address request "
+                                       f"({resp.status_code}) for {market} on {network}: {msg}"}
         except Exception as e:
             print(f"[PAYMENT] fetch exception: {e}", flush=True)
+            return {'unavailable': f"Operator unreachable at {OPERATOR_URL}: {e}"}
 
     base = _payment_address_cache.get(cache_key)
     if not base:
-        return None  # Operator unreachable or misconfigured
+        return {'unavailable': f"No payment configuration for {market} on {network}."}
 
     # If consumer_did is provided, make a fresh request to auto-create a
     # payment_intent on the Operator. The intent expires in 5 minutes.
@@ -401,10 +419,17 @@ def research_payment_required():
 
     payment_addr = _get_payment_address(consumer_did=consumer_did, amount_whole=amount_whole)
     if not payment_addr:
-        # Operator unreachable — return 503 so Consumer can retry
         return jsonify({
             'error':   'payment_config_unavailable',
-            'message': 'Provider payment configuration is temporarily unavailable.',
+            'message': 'Provider payment configuration is unavailable.',
+        }), 503
+
+    # Couldn't obtain a settlement target / intent — say exactly why, rather
+    # than implying a transient outage the caller should retry.
+    if payment_addr.get('unavailable'):
+        return jsonify({
+            'error':   'payment_config_unavailable',
+            'message': payment_addr['unavailable'],
         }), 503
 
     # The Operator refused the intent on the consumer's spend policy — relay it
@@ -683,6 +708,9 @@ def health():
         'payment_network':     PAYMENT_NETWORK,
         'service_price_usdc':  SERVICE_PRICE / 1_000_000,
         'settlement_contract': payment_addr.get('contract') if payment_addr else 'not cached',
+        # Without this the Operator 401s every payment-intent request, so the
+        # run dies at the 402 step — surface it as a readiness signal.
+        'principal_key_set':   bool(os.environ.get('NUSTRO_PRINCIPAL_KEY', '')),
     })
 
 

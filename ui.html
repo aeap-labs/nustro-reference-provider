@@ -24,9 +24,9 @@
   .chip{font-family:var(--mono);font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;font-weight:700;
     color:#fff;background:var(--provider);border-radius:4px;padding:2px 7px}
   header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
-  .warn{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:9px;
+  .devnote{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:9px;
     padding:10px 14px;font-size:.82rem;color:var(--ink-2);margin:16px 0 26px}
-  .warn b{color:var(--ink)}
+  .devnote b{color:var(--ink)}
   .cols{display:grid;grid-template-columns:minmax(0,380px) minmax(0,1fr);gap:18px;align-items:start}
   @media(max-width:900px){.cols{grid-template-columns:1fr}}
   .card{background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:18px}
@@ -66,7 +66,7 @@
   </header>
   <div class="sub">Local console — configure this agent, then leave it running and drive the interaction from the Consumer console.</div>
 
-  <div class="warn">
+  <div class="devnote">
     <b>Local dev tool.</b> Keys are held in this process's memory only — never written to disk or logged.
     Don't expose this app on an untrusted network.
   </div>

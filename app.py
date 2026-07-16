@@ -74,7 +74,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 import requests as http_requests
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from aeap_client import AEAPClient
 
 app = Flask(__name__)
@@ -137,11 +137,17 @@ client = _build_client(
 
 @app.before_request
 def _gate_unconfigured():
-    """Block the service routes until an identity is loaded. /configure and
-    /health stay open so the UI can configure and poll readiness."""
-    if client is None and request.endpoint not in ('configure', 'health', 'static'):
+    """Block the service routes until an identity is loaded. The console (/),
+    /configure and /health stay open so the UI can configure and poll readiness."""
+    if client is None and request.endpoint not in ('ui', 'configure', 'health', 'static'):
         return jsonify({'error': 'not_configured',
                         'message': 'No agent identity loaded. POST /configure first.'}), 409
+
+
+@app.route('/', methods=['GET'])
+def ui():
+    """Local console — configure this agent from the browser (see ui.html)."""
+    return send_file(os.path.join(os.path.dirname(__file__), 'ui.html'))
 
 
 @app.route('/configure', methods=['POST'])

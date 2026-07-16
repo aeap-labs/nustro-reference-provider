@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nustro Reference Provider — local console</title>
+<style>
+  :root{
+    --paper:#eef1f5; --surface:#fff; --surface-2:#f6f8fb; --ink:#111a26; --ink-2:#3c4a5c; --ink-3:#64748b;
+    --line:#d5dce6; --line-2:#e4e9f0; --rail:#0b6e73; --provider:#0f7a5f; --ok:#2f8f4e; --warn:#b06a10; --crit:#bb3b30;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--paper:#0b1017;--surface:#121a24;--surface-2:#0f161f;--ink:#e8edf3;--ink-2:#b3bfce;--ink-3:#7f8da0;
+      --line:#24303f;--line-2:#1b2430;--rail:#4ec4c4;--provider:#46c78f;--ok:#4cc06e;--warn:#d99a2b;--crit:#e0685c;}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.55;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1000px;margin:0 auto;padding:28px 22px 80px}
+  h1{font-size:1.4rem;margin:0;letter-spacing:-.02em}
+  h2{font-size:.95rem;margin:0 0 12px;letter-spacing:-.01em}
+  .sub{color:var(--ink-3);font-size:.85rem;margin-top:3px}
+  .chip{font-family:var(--mono);font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;font-weight:700;
+    color:#fff;background:var(--provider);border-radius:4px;padding:2px 7px}
+  header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .warn{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:9px;
+    padding:10px 14px;font-size:.82rem;color:var(--ink-2);margin:16px 0 26px}
+  .warn b{color:var(--ink)}
+  .cols{display:grid;grid-template-columns:minmax(0,380px) minmax(0,1fr);gap:18px;align-items:start}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:18px}
+  label{display:block;font-size:.72rem;font-weight:650;color:var(--ink-2);margin:11px 0 4px}
+  label:first-of-type{margin-top:0}
+  input,textarea{width:100%;background:var(--surface-2);border:1px solid var(--line);border-radius:7px;
+    padding:7px 9px;font-size:.8rem;color:var(--ink);font-family:var(--mono)}
+  textarea{resize:vertical;min-height:64px}
+  input:focus,textarea:focus{outline:2px solid var(--provider);outline-offset:1px}
+  .row input[type=file]{font-family:var(--sans);font-size:.7rem;padding:4px;border:0;background:none}
+  .hint{font-size:.68rem;color:var(--ink-3);margin-top:3px}
+  button{font-family:var(--sans);font-weight:650;font-size:.82rem;border:0;border-radius:8px;padding:9px 16px;cursor:pointer}
+  .primary{background:var(--provider);color:#fff;width:100%;margin-top:16px}
+  .primary:disabled{opacity:.5;cursor:not-allowed}
+  details{margin-top:12px} summary{font-size:.75rem;color:var(--ink-3);cursor:pointer}
+  .status{display:grid;gap:7px}
+  .probe{display:flex;align-items:center;gap:9px;font-size:.8rem;color:var(--ink-2)}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--ink-3);flex:none}
+  .dot.ok{background:var(--ok)} .dot.bad{background:var(--crit)} .dot.warn{background:var(--warn)}
+  .probe .v{margin-left:auto;font-family:var(--mono);font-size:.72rem;color:var(--ink-3)}
+  .banner{border-radius:8px;padding:10px 12px;font-size:.8rem;margin-bottom:14px;display:none}
+  .banner.ok{display:block;background:color-mix(in srgb,var(--ok) 12%,transparent);border:1px solid var(--ok);color:var(--ink)}
+  .banner.bad{display:block;background:color-mix(in srgb,var(--crit) 12%,transparent);border:1px solid var(--crit);color:var(--ink)}
+  .eps{display:grid;gap:8px;font-size:.79rem;color:var(--ink-2)}
+  .eps .ep{display:grid;grid-template-columns:52px 1fr;gap:10px;align-items:baseline}
+  .eps .m{font-family:var(--mono);font-size:.62rem;font-weight:700;text-align:center;border-radius:4px;padding:2px 0;color:#fff;background:var(--rail)}
+  .eps code{font-family:var(--mono);font-size:.74rem;color:var(--ink)}
+  .note{font-size:.8rem;color:var(--ink-2);background:var(--surface-2);border:1px solid var(--line-2);
+    border-radius:8px;padding:11px 13px;margin-top:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="chip">Provider</span>
+    <h1>Nustro Reference Provider</h1>
+  </header>
+  <div class="sub">Local console — configure this agent, then leave it running and drive the interaction from the Consumer console.</div>
+
+  <div class="warn">
+    <b>Local dev tool.</b> Keys are held in this process's memory only — never written to disk or logged.
+    Don't expose this app on an untrusted network.
+  </div>
+
+  <div class="cols">
+    <div class="card">
+      <h2>Agent identity</h2>
+      <div id="banner" class="banner"></div>
+
+      <label>Provider DID</label>
+      <input id="provider_did" placeholder="did:aeap:…">
+
+      <label>Agent private key (PEM — shown once at activation)</label>
+      <textarea id="private_key" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
+      <div class="row"><input type="file" accept=".pem,.key,.txt" onchange="loadFile(this,'private_key')"></div>
+
+      <label>Agent certificate (JWT)</label>
+      <textarea id="certificate" placeholder="eyJhbGciOiJFUzI1NiIs…"></textarea>
+      <div class="row"><input type="file" accept=".jwt,.txt" onchange="loadFile(this,'certificate')"></div>
+
+      <label>Principal key</label>
+      <input id="nustro_principal_key" type="password" placeholder="nustro_sandbox_… / nustro_live_…">
+
+      <label>Public service URL</label>
+      <input id="provider_base_url" value="http://localhost:5001">
+      <div class="hint">Goes in the discovery document — the Consumer must be able to reach it.</div>
+
+      <h2 style="margin-top:22px">Service</h2>
+      <label>Service price (token base units)</label>
+      <input id="service_price" value="10000000">
+      <div class="hint">USDC has 6 decimals — 10000000 = 10.00 USDC.</div>
+
+      <details>
+        <summary>Advanced</summary>
+        <label>Payment market</label>
+        <input id="payment_market" placeholder="GLOBAL-USDC">
+        <label>Payment network</label>
+        <input id="payment_network" placeholder="base-sepolia">
+        <label>Operator URL</label>
+        <input id="operator_url" placeholder="https://api.nustro.ai">
+      </details>
+
+      <button class="primary" id="saveBtn" onclick="save()">Save session</button>
+    </div>
+
+    <div style="display:grid;gap:18px">
+      <div class="card">
+        <h2>Readiness</h2>
+        <div class="status">
+          <div class="probe"><span class="dot" id="d_cfg"></span>Identity loaded<span class="v" id="v_cfg">—</span></div>
+          <div class="probe"><span class="dot" id="d_agent"></span>Agent status<span class="v" id="v_agent">—</span></div>
+          <div class="probe"><span class="dot" id="d_env"></span>Environment<span class="v" id="v_env">—</span></div>
+          <div class="probe"><span class="dot" id="d_escrow"></span>Escrow<span class="v" id="v_escrow">—</span></div>
+          <div class="probe"><span class="dot" id="d_price"></span>Price<span class="v" id="v_price">—</span></div>
+        </div>
+        <div class="note" id="ready-note">Configure this agent to start serving.</div>
+      </div>
+
+      <div class="card">
+        <h2>Serving</h2>
+        <div class="eps">
+          <div class="ep"><span class="m">GET</span><span><code>/.well-known/aeap</code> — discovery document</span></div>
+          <div class="ep"><span class="m">POST</span><span><code>/.well-known/aeap/challenge</code> — sign the Consumer's nonce</span></div>
+          <div class="ep"><span class="m">GET</span><span><code>/research</code> — 402 payment instructions (or 403 if the Operator refuses the Consumer's spend policy)</span></div>
+          <div class="ep"><span class="m">POST</span><span><code>/research</code> — verify proof + payment, deliver, facilitate</span></div>
+        </div>
+        <div class="note">Watch this app's stdout for the live <code>[PAYMENT]</code> / <code>[FACILITATE]</code> trace during a run.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+function loadFile(input, target){
+  const f = input.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = () => { $(target).value = r.result.trim(); };
+  r.readAsText(f);
+}
+function banner(msg, ok){ const b = $('banner'); b.className = 'banner ' + (ok?'ok':'bad'); b.textContent = msg; }
+function setProbe(key, state, value){
+  $('d_'+key).className = 'dot' + (state ? ' ' + state : '');
+  $('v_'+key).textContent = value;
+}
+
+async function save(){
+  const body = {
+    provider_did:         $('provider_did').value.trim(),
+    provider_base_url:    $('provider_base_url').value.trim(),
+    private_key:          $('private_key').value.trim(),
+    certificate:          $('certificate').value.trim(),
+    nustro_principal_key: $('nustro_principal_key').value.trim(),
+    payment_market:       $('payment_market').value.trim(),
+    payment_network:      $('payment_network').value.trim(),
+    operator_url:         $('operator_url').value.trim(),
+  };
+  const sp = $('service_price').value.trim();
+  if(sp) body.service_price = parseInt(sp, 10);
+
+  $('saveBtn').disabled = true;
+  try{
+    const r = await fetch('/configure', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    const d = await r.json();
+    if(!r.ok){
+      banner(d.error === 'missing_fields' ? 'Missing: ' + (d.missing||[]).join(', ')
+                                          : (d.message || d.error || 'Configure failed'), false);
+    } else {
+      banner('Session configured — ' + d.provider_did, true);
+      refresh();
+    }
+  }catch(e){ banner('Configure failed: ' + e.message, false); }
+  $('saveBtn').disabled = false;
+}
+
+async function refresh(){
+  try{
+    const d = await (await fetch('/health')).json();
+    if(d.status === 'unconfigured'){
+      setProbe('cfg','bad','not loaded');
+      ['agent','env','escrow','price'].forEach(k=>setProbe(k,'','—'));
+      $('ready-note').textContent = 'Configure this agent to start serving.';
+      return;
+    }
+    setProbe('cfg','ok', d.agent_id ? d.agent_id.slice(0,22)+'…' : 'loaded');
+    setProbe('agent', d.agent_status==='ACTIVE'?'ok':'bad', d.agent_status);
+    setProbe('env', d.environment==='production'?'ok':'warn', d.environment);
+    setProbe('escrow', d.escrow_state==='ACTIVE'?'ok':'warn', d.escrow_state);
+    setProbe('price','ok', (d.service_price_usdc ?? '?') + ' USDC · ' + (d.payment_network||''));
+    $('ready-note').textContent = d.environment === 'production'
+      ? 'Serving. Drive a run from the Consumer console.'
+      : 'Serving in ' + d.environment + '. Note: on-chain settlement requires both agents in production.';
+  }catch(e){ setProbe('cfg','bad','app unreachable'); }
+}
+
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>

@@ -98,6 +98,10 @@ gunicorn --workers 2 --bind 127.0.0.1:5001 wsgi:app   # prod
 
 ## Endpoints
 
+- **`GET /`** — **local console**: a browser UI to paste this agent's identity
+  (DID, key, certificate), set the service price/market, and check readiness.
+  Start the app and open `http://localhost:5001`, then drive the run from the
+  Consumer console.
 - **`GET /.well-known/aeap`** — discovery document (AID: DID, certificate, capabilities, challenge URL).
 - **`POST /.well-known/aeap/challenge`** — respond to a Consumer's AEA/P challenge → `{certificate, challenge_response, timestamp, agent_id}`.
 - **`GET /research?consumer_did=…`** — `402` with payment instructions (contract, token, amount, `provider_did_hash`, `expires_at`), or `403 spend_policy_violation` when the Operator refuses the consumer's spend policy.

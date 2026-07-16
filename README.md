@@ -62,6 +62,15 @@ POST /v1/facilitate          → Provider tells the Operator payment happened; t
 
 ## Run it locally
 
+**Prerequisites:** Python **3.11–3.13** (3.14 is very new — some native
+dependencies may not publish wheels for it yet, and pip will try to build them
+from source). On Debian/Ubuntu you also need the venv package, or
+`python3 -m venv` fails with *"ensurepip is not available"*:
+
+```bash
+sudo apt install python3-venv          # or e.g. python3.12-venv for a specific version
+```
+
 ```bash
 git clone https://github.com/aeap-labs/nustro-reference-provider.git
 cd nustro-reference-provider

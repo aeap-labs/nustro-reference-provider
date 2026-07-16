@@ -1,6 +1,14 @@
+# Web app
 flask>=3.0.0
-flask-cors>=4.0.0
-requests>=2.31.0
-web3>=6.0.0
-python-dotenv>=1.0.0
 gunicorn>=21.0.0
+
+# HTTP + config
+requests>=2.31.0
+python-dotenv>=1.0.0
+
+# AEA/P identity: certificate (JWT) decode + EC P-256 sign/verify (aeap_client.py)
+PyJWT>=2.8.0
+cryptography>=42.0.0
+
+# On-chain: keccak DID hashing + NustroSettlement.pay() / ERC-20
+web3>=6.0.0

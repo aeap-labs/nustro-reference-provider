@@ -60,11 +60,29 @@ POST /v1/facilitate          → Provider tells the Operator payment happened; t
 
 ---
 
-## Setup
+## Run it locally
 
 ```bash
+git clone https://github.com/aeap-labs/nustro-reference-provider.git
+cd nustro-reference-provider
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
+python wsgi.py                      # serves on http://localhost:5001
+```
+
+Then open **http://localhost:5001** — the local console. Paste your agent's
+DID, private key (PEM) and certificate (JWT) from activation, set the price,
+and hit **Save session**. No `.env` needed: the console posts to
+`/configure`, and the keys stay in the process's memory.
+
+Leave this running, then start the
+[Consumer](https://github.com/aeap-labs/nustro-reference-consumer) and drive
+the interaction from its console.
+
+<details>
+<summary><b>Alternative: configure with a .env file</b> (for an unattended / deployed instance)</summary>
+
+```bash
 cp .env.example .env      # then edit
 ```
 
@@ -74,12 +92,12 @@ cp .env.example .env      # then edit
 | `NUSTRO_PRINCIPAL_KEY` | Yes | Management key (`nustro_sandbox_…` / `nustro_live_…`), shown once. |
 | `PROVIDER_DID` | Yes | This agent's DID (`did:aeap:…`). |
 | `PROVIDER_BASE_URL` | Yes | Public URL of this service (in the discovery document). |
-| `PAYMENT_MARKET` | Yes | Market label, e.g. `US-USDC`. |
-| `PAYMENT_NETWORK` | Yes | Blockchain network, e.g. `base-sepolia`. |
-| `SERVICE_PRICE` | Yes | Price per call in **token base units** (1000000 = 1.00 USDC). |
+| `PAYMENT_MARKET` | No | Market label, e.g. `US-USDC`. |
+| `PAYMENT_NETWORK` | No | Blockchain network. Default `base-sepolia`. |
+| `SERVICE_PRICE` | No | Price per call in **token base units** (10000000 = 10.00 USDC). |
 | `BASE_SEPOLIA_RPC` | Yes | RPC URL for the settlement network. |
 
-Install this agent's material in `keys/`:
+Plus this agent's material in `keys/`:
 
 ```
 keys/
@@ -87,12 +105,15 @@ keys/
   certificate.jwt    ← AEA/P certificate JWT (issued by the Nustro CA)
 ```
 
-Rotate the key via `POST /v1/agents/{did}/rotate-key` (new key returned once).
+With `.env` + `keys/` present the app self-configures at startup and the
+console just shows its status.
 
 ```bash
-python wsgi.py                                        # dev
 gunicorn --workers 2 --bind 127.0.0.1:5001 wsgi:app   # prod
 ```
+</details>
+
+Rotate the key via `POST /v1/agents/{did}/rotate-key` (new key returned once).
 
 ---
 

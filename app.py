@@ -261,7 +261,7 @@ def _get_payment_address(consumer_did: str = None, amount_whole=None) -> dict | 
             resp = http_requests.get(
                 f"{OPERATOR_URL}/v1/payment-address",
                 params  = {'market': market, 'network': network},
-                headers = {'Nustro-Principal-Key': key},
+                headers = {'Nustro-Api-Key': key},
                 timeout = 10,
             )
             print(f"[PAYMENT] payment-address fetch: status={resp.status_code}", flush=True)
@@ -295,7 +295,7 @@ def _get_payment_address(consumer_did: str = None, amount_whole=None) -> dict | 
                            'consumer_did': consumer_did,
                            'amount': (str(amount_whole) if amount_whole is not None else None),
                            'provider_did': provider_did},
-                headers = {'Nustro-Principal-Key': key},
+                headers = {'Nustro-Api-Key': key},
                 timeout = 10,
             )
             if resp.status_code == 200:
@@ -623,7 +623,7 @@ def _facilitate(consumer_did: str, tx_hash: str, network: str) -> dict:
         resp = http_requests.post(
             f"{OPERATOR_URL}/v1/facilitate",
             headers = {
-                'Nustro-Principal-Key': principal_key,
+                'Nustro-Api-Key': principal_key,
                 'Content-Type':         'application/json',
             },
             json = {

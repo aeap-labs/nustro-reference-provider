@@ -34,6 +34,7 @@ Usage:
 
 import os
 import base64
+import hashlib
 import secrets
 from datetime import datetime, timezone
 
@@ -91,6 +92,41 @@ class AEAPClient:
     def _timestamp(self) -> str:
         """Current UTC timestamp in ISO 8601 format."""
         return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    # ── Runtime economic calls to the Operator ──────────────────────────────
+
+    @staticmethod
+    def _request_digest(method: str, body: bytes = b'', params: dict = None) -> str:
+        """SHA-256 over the canonical request. GET → sorted `k=v&k=v` query
+        string; other methods → the raw body bytes. Must mirror the Operator's
+        own digest exactly, so pass the SAME body/params you put on the wire."""
+        if method.upper() == 'GET':
+            canonical = '&'.join(f"{k}={v}" for k, v in sorted((params or {}).items()))
+            payload = canonical.encode('utf-8')
+        else:
+            payload = body if isinstance(body, bytes) else (body or '').encode('utf-8')
+        return hashlib.sha256(payload).hexdigest()
+
+    def operator_request_headers(self, method: str, path: str,
+                                 body: bytes = b'', params: dict = None) -> dict:
+        """Authenticate a call to the Operator's runtime economic endpoints
+        (payment-address, facilitate, tasks/confirm) as THIS agent — the
+        certificate plus a proof bound to this exact request. Never the platform
+        management key (Operator Ref v1.2 §4.5).
+
+        The proof signs  aeap-req:v1|ts|agent_did|METHOD|path|digest  where the
+        digest is over the canonical request (see _request_digest). `path` is the
+        request path only (no host, no query string); for GET the query is
+        covered by the digest. Pass the SAME body/params you send on the wire.
+        """
+        timestamp = self._timestamp()
+        digest = self._request_digest(method, body=body, params=params)
+        message = f"aeap-req:v1|{timestamp}|{self.agent_did}|{method.upper()}|{path}|{digest}"
+        return {
+            'AEAP-Certificate': self.certificate_jwt,
+            'AEAP-Proof': self.sign(message),
+            'AEAP-Timestamp': timestamp,
+        }
 
     # ── Phase 1 — Caller verifies callee ────────────────────────────────────
 

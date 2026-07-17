@@ -156,8 +156,9 @@ def configure():
     instead of reading .env at startup.
 
     Body: provider_did, provider_base_url, private_key (PEM), certificate (JWT)
-    — required; operator_url, nustro_principal_key, payment_market,
-    payment_network, service_price — optional.
+    — required; operator_url, payment_market, payment_network, service_price
+    — optional. The provider authenticates to the Operator with its certificate,
+    so no management key is needed here.
 
     LOCAL / TRUSTED DEMO USE ONLY: this accepts an agent private key over HTTP.
     Never expose it on an untrusted network.
@@ -199,8 +200,6 @@ def configure():
     os.environ['PROVIDER_DID']    = PROVIDER_DID
     os.environ['PAYMENT_MARKET']  = PAYMENT_MARKET
     os.environ['PAYMENT_NETWORK'] = PAYMENT_NETWORK
-    if (data.get('nustro_principal_key') or '').strip():
-        os.environ['NUSTRO_PRINCIPAL_KEY'] = data['nustro_principal_key'].strip()
     _payment_address_cache.clear()   # market/network may have changed
 
     return jsonify({
@@ -211,7 +210,7 @@ def configure():
         'payment_market':    PAYMENT_MARKET,
         'payment_network':   PAYMENT_NETWORK,
         'service_price':     SERVICE_PRICE,
-        'principal_key_set': bool(os.environ.get('NUSTRO_PRINCIPAL_KEY')),
+        'identity_configured': client is not None,
     }), 200
 
 # ── Payment address cache ──────────────────────────────────────────────────────
@@ -243,25 +242,27 @@ def _get_payment_address(consumer_did: str = None, amount_whole=None) -> dict | 
     """
     market  = os.environ.get('PAYMENT_MARKET', PAYMENT_MARKET)
     network = os.environ.get('PAYMENT_NETWORK', PAYMENT_NETWORK)
-    key     = os.environ.get('NUSTRO_PRINCIPAL_KEY', '')
     provider_did = os.environ.get('PROVIDER_DID', PROVIDER_DID)
 
-    # Fail fast with a precise reason: without a principal key the Operator will
-    # 401 every payment-address call, so no intent can ever be minted.
-    if not key:
-        return {'unavailable': 'No NUSTRO_PRINCIPAL_KEY configured on this Provider — '
-                               'the Operator will reject the payment-intent request. '
-                               'Set it via POST /configure or .env.'}
+    # The Operator authenticates us as this provider agent (certificate +
+    # request-bound proof, Operator Ref v1.2 §4.5) — no management key. Fail
+    # fast with a precise reason if no agent identity is loaded.
+    if client is None:
+        return {'unavailable': 'No agent identity configured on this Provider — '
+                               'the Operator cannot authenticate the payment-address '
+                               'request. Set the key/certificate via POST /configure or keys/.'}
 
     cache_key = f"{market}:{network}"
 
     # Populate the cache if empty (first request after startup)
     if cache_key not in _payment_address_cache:
         try:
+            params  = {'market': market, 'network': network}
+            headers = client.operator_request_headers('GET', '/v1/payment-address', params=params)
             resp = http_requests.get(
                 f"{OPERATOR_URL}/v1/payment-address",
-                params  = {'market': market, 'network': network},
-                headers = {'Nustro-Api-Key': key},
+                params  = params,
+                headers = headers,
                 timeout = 10,
             )
             print(f"[PAYMENT] payment-address fetch: status={resp.status_code}", flush=True)
@@ -289,13 +290,17 @@ def _get_payment_address(consumer_did: str = None, amount_whole=None) -> dict | 
     # If not paid within that window, it's marked ABANDONED by the Operator.
     if consumer_did:
         try:
+            # Only include amount when we have one — requests drops None params,
+            # and the proof digest must cover exactly the params sent on the wire.
+            params = {'market': market, 'network': network,
+                      'consumer_did': consumer_did, 'provider_did': provider_did}
+            if amount_whole is not None:
+                params['amount'] = str(amount_whole)
+            headers = client.operator_request_headers('GET', '/v1/payment-address', params=params)
             resp = http_requests.get(
                 f"{OPERATOR_URL}/v1/payment-address",
-                params  = {'market': market, 'network': network,
-                           'consumer_did': consumer_did,
-                           'amount': (str(amount_whole) if amount_whole is not None else None),
-                           'provider_did': provider_did},
-                headers = {'Nustro-Api-Key': key},
+                params  = params,
+                headers = headers,
                 timeout = 10,
             )
             if resp.status_code == 200:
@@ -618,20 +623,25 @@ def _facilitate(consumer_did: str, tx_hash: str, network: str) -> dict:
     Returns a dict with success flag and facilitation details including
     task_id (None if same-principal — Sybil check prevents PoP gaming).
     """
-    principal_key = os.environ.get('NUSTRO_PRINCIPAL_KEY', '')
+    if client is None:
+        return {'success': False, 'message': 'Agent identity not configured (POST /configure).'}
+
+    # Agent-authenticated as the provider (certificate + request-bound proof,
+    # Operator Ref v1.2 §4.5). Sign over the exact body bytes we send.
+    path = '/v1/facilitate'
+    body = json.dumps({
+        'provider_did': PROVIDER_DID,
+        'consumer_did': consumer_did,
+        'tx_hash':      tx_hash,
+        'network':      network,
+    }).encode('utf-8')
+    headers = client.operator_request_headers('POST', path, body=body)
+    headers['Content-Type'] = 'application/json'
     try:
         resp = http_requests.post(
-            f"{OPERATOR_URL}/v1/facilitate",
-            headers = {
-                'Nustro-Api-Key': principal_key,
-                'Content-Type':         'application/json',
-            },
-            json = {
-                'provider_did': PROVIDER_DID,
-                'consumer_did': consumer_did,
-                'tx_hash':      tx_hash,
-                'network':      network,
-            },
+            f"{OPERATOR_URL}{path}",
+            headers = headers,
+            data = body,
             timeout=30,  # blockchain reads can take a few seconds
         )
         data = resp.json()
@@ -708,9 +718,9 @@ def health():
         'payment_network':     PAYMENT_NETWORK,
         'service_price_usdc':  SERVICE_PRICE / 1_000_000,
         'settlement_contract': payment_addr.get('contract') if payment_addr else 'not cached',
-        # Without this the Operator 401s every payment-intent request, so the
-        # run dies at the 402 step — surface it as a readiness signal.
-        'principal_key_set':   bool(os.environ.get('NUSTRO_PRINCIPAL_KEY', '')),
+        # The provider authenticates to the Operator with its certificate; a
+        # loaded identity (client) is the readiness signal for economic calls.
+        'identity_configured': client is not None,
     })
 
 

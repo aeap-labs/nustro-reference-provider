@@ -98,7 +98,6 @@ cp .env.example .env      # then edit
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `OPERATOR_URL` | No | Nustro Operator base URL. Default `https://api.nustro.ai`. |
-| `NUSTRO_PRINCIPAL_KEY` | Yes | Management key (`nustro_sandbox_…` / `nustro_live_…`), shown once. |
 | `PROVIDER_DID` | Yes | This agent's DID (`did:aeap:…`). |
 | `PROVIDER_BASE_URL` | Yes | Public URL of this service (in the discovery document). |
 | `PAYMENT_MARKET` | No | Market label, e.g. `US-USDC`. |
@@ -113,6 +112,11 @@ keys/
   private_key.pem    ← EC P-256 private key (NEVER share or commit)
   certificate.jwt    ← AEA/P certificate JWT (issued by the Nustro CA)
 ```
+
+There is **no management key** here. The provider authenticates its runtime
+economic calls to the Operator (`payment-address`, `facilitate`) **as the
+agent** — the certificate above plus a proof bound to each request (Operator
+Ref v1.2 §4.5). The private key + certificate *are* the runtime credential.
 
 With `.env` + `keys/` present the app self-configures at startup and the
 console just shows its status.
@@ -145,7 +149,7 @@ Rotate the key via `POST /v1/agents/{did}/rotate-key` (new key returned once).
 - **`POST /configure`** — set the agent identity + service config at runtime
   (for a UI), instead of `.env`. Body: `provider_did`, `provider_base_url`,
   `private_key` (PEM), `certificate` (JWT) — required; `operator_url`,
-  `nustro_principal_key`, `payment_market`, `payment_network`, `service_price`
+  `payment_market`, `payment_network`, `service_price`
   — optional. **Local/trusted use only** — it accepts a private key over HTTP.
   Until configured (via `.env` or this call), the service routes return
   `409 not_configured`.
@@ -192,7 +196,8 @@ against you.
 
 ## Troubleshooting
 
-- **`503` on `GET /research`** — `NUSTRO_PRINCIPAL_KEY` unset, or the Operator is unreachable.
+- **`503` on `GET /research`** — no agent identity loaded (missing `keys/` or `POST /configure`), or the Operator is unreachable.
+- **`401 aeap_verification_failed` from the Operator** — the certificate/proof was rejected: cert not issued by this Operator's CA, expired, or clock skew on `AEAP-Timestamp` (>30s).
 - **`403 spend_policy_violation` on `GET /research`** — the Operator refused the intent under the **consumer's** spend policy (`detail.failed_check`). Not a Provider error — the consumer's principal must widen its scope.
 - **`402` on `POST /research` after payment** — the Operator couldn't verify the tx (not yet mined / wrong tx or network / wrong contract).
 - **`settlement_contract: not cached` in `/health`** — normal before the first `GET /research`.

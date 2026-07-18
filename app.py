@@ -687,6 +687,24 @@ def _execute_research(query: str) -> str:
     )
 
 
+def _get_escrow_profile() -> dict:
+    """This provider's escrow balance + threshold + state, read from its own
+    AID (public GET /aid -> escrow.liability_profile). Amounts are in whole
+    currency units. Returns {} if the AID is unreachable."""
+    try:
+        resp = http_requests.get(
+            f"{OPERATOR_URL}/v1/agents/{PROVIDER_DID}/aid", timeout=5)
+        if resp.status_code != 200:
+            return {}
+        lp = (resp.json().get('escrow') or {}).get('liability_profile') or {}
+        return {'balance':   lp.get('total_balance'),
+                'threshold': lp.get('effective_threshold'),
+                'state':     lp.get('escrow_state')}
+    except Exception as e:
+        print(f"[ESCROW] AID fetch failed: {e}", flush=True)
+        return {}
+
+
 # ── Health check ───────────────────────────────────────────────────────────────
 
 @app.route('/health', methods=['GET'])
@@ -706,6 +724,7 @@ def health():
                         'message': 'POST /configure to load an agent identity.'})
     status       = client.get_own_status()
     payment_addr = _payment_address_cache.get(f"{PAYMENT_MARKET}:{PAYMENT_NETWORK}")
+    escrow       = _get_escrow_profile()
     return jsonify({
         'status':              'ok',
         'agent_id':            PROVIDER_DID,
@@ -713,7 +732,12 @@ def health():
         'agent_status':        status.get('status')       if status else 'unknown',
         'environment':         status.get('environment')  if status else 'unknown',
         'cert_tier':           status.get('cert_tier')    if status else 'unknown',
-        'escrow_state':        status.get('escrow_state') if status else 'unknown',
+        # Escrow balance + threshold come from the public AID (whole USDC); the
+        # reserve fills from a cut of each settled payment and flips FUNDING ->
+        # ACTIVE once balance >= threshold.
+        'escrow_state':        escrow.get('state') or (status.get('escrow_state') if status else 'unknown'),
+        'escrow_balance':      escrow.get('balance'),
+        'escrow_threshold':    escrow.get('threshold'),
         'payment_market':      PAYMENT_MARKET,
         'payment_network':     PAYMENT_NETWORK,
         'service_price_usdc':  SERVICE_PRICE / 1_000_000,

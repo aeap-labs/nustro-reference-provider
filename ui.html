@@ -195,7 +195,15 @@ async function refresh(){
     setProbe('env', d.environment==='production'?'ok':'warn', d.environment);
     setProbe('key', d.identity_configured?'ok':'bad',
              d.identity_configured?'certificate':'no identity');
-    setProbe('escrow', d.escrow_state==='ACTIVE'?'ok':'warn', d.escrow_state);
+    // Balance + progress to ACTIVE: "0.00 / 15.00 USDC · FUNDING".
+    const eb = d.escrow_balance, et = d.escrow_threshold;
+    let eStr = d.escrow_state || 'unknown';
+    if (eb != null) {
+      eStr = Number(eb).toFixed(2)
+           + (et != null ? ' / ' + Number(et).toFixed(2) : '')
+           + ' USDC · ' + (d.escrow_state || '');
+    }
+    setProbe('escrow', d.escrow_state==='ACTIVE'?'ok':'warn', eStr);
     setProbe('price','ok', (d.service_price_usdc ?? '?') + ' USDC · ' + (d.payment_network||''));
     // Runtime economic calls authenticate with the agent certificate + a
     // request-bound proof — no management key to misplace.

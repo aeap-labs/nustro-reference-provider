@@ -153,7 +153,7 @@ Rotate the key via `POST /v1/agents/{did}/rotate-key` (new key returned once).
   — optional. **Local/trusted use only** — it accepts a private key over HTTP.
   Until configured (via `.env` or this call), the service routes return
   `409 not_configured`.
-- **`GET /health`** — Provider status from the Nustro Operator (`unconfigured` until an identity is loaded).
+- **`GET /health`** — Provider status from the Nustro Operator (`unconfigured` until an identity is loaded). Includes the live escrow readout — `escrow_balance` / `escrow_threshold` (whole USDC) + `escrow_state` — read from the public AID; the console shows it as `0.00 / 15.00 USDC · FUNDING`.
 
 ---
 
@@ -189,8 +189,12 @@ escrow (10%) → escrow wallet (Nustro KMS)
 operational  → your operational wallet
 ```
 
-Escrow accrues to `effective_threshold`; once active it backs disputes filed
-against you.
+Escrow accrues to `effective_threshold`; once `total_balance >= threshold` the
+state flips `FUNDING → ACTIVE` and it backs disputes filed against you. The
+console's **Escrow** probe tracks this live (`balance / threshold · state`) so
+you can watch the reserve fill across runs. Nothing to pre-fund — a new
+provider starts at `0.00 · FUNDING` and transacts normally (only `CONSTRAINED`
+would block, and that's Pillar-4/future).
 
 ---
 

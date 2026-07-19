@@ -209,8 +209,8 @@ async function refresh(){
     // request-bound proof — no management key to misplace.
     $('ready-note').textContent =
       (d.environment === 'production'
-          ? 'Serving. Drive a run from the Consumer console.'
-          : 'Serving in ' + d.environment + '. Note: on-chain settlement requires both agents in production.');
+          ? 'Serving in production — settles on mainnet. Drive a run from the Consumer console.'
+          : 'Serving in ' + d.environment + ' — settles on testnet (Base Sepolia). Both agents must share the same environment. Drive a run from the Consumer console.');
   }catch(e){ setProbe('cfg','bad','app unreachable'); }
 }
 

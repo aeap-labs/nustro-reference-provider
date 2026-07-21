@@ -732,6 +732,9 @@ def health():
         'agent_status':        status.get('status')       if status else 'unknown',
         'environment':         status.get('environment')  if status else 'unknown',
         'cert_tier':           status.get('cert_tier')    if status else 'unknown',
+        # Own PoP rating — null until 10 production interactions (and for
+        # sandbox-only agents). Updated by the Phase-5 confirmation.
+        'agent_rating':        status.get('agent_rating') if status else None,
         # Escrow balance + threshold come from the public AID (whole USDC); the
         # reserve fills from a cut of each settled payment and flips FUNDING ->
         # ACTIVE once balance >= threshold.

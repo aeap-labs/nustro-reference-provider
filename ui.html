@@ -120,6 +120,7 @@
           <div class="probe"><span class="dot" id="d_key"></span>Operator auth<span class="v" id="v_key">—</span></div>
           <div class="probe"><span class="dot" id="d_escrow"></span>Escrow<span class="v" id="v_escrow">—</span></div>
           <div class="probe"><span class="dot" id="d_price"></span>Price<span class="v" id="v_price">—</span></div>
+          <div class="probe"><span class="dot" id="d_rating"></span>Rating (AR)<span class="v" id="v_rating">—</span></div>
         </div>
         <div class="note" id="ready-note">Configure this agent to start serving.</div>
       </div>
@@ -186,7 +187,7 @@ async function refresh(){
     const d = await (await fetch('/health')).json();
     if(d.status === 'unconfigured'){
       setProbe('cfg','bad','not loaded');
-      ['agent','env','key','escrow','price'].forEach(k=>setProbe(k,'','—'));
+      ['agent','env','key','escrow','price','rating'].forEach(k=>setProbe(k,'','—'));
       $('ready-note').textContent = 'Configure this agent to start serving.';
       return;
     }
@@ -205,6 +206,12 @@ async function refresh(){
     }
     setProbe('escrow', d.escrow_state==='ACTIVE'?'ok':'warn', eStr);
     setProbe('price','ok', (d.service_price_usdc ?? '?') + ' USDC · ' + (d.payment_network||''));
+    // Own PoP rating — null until 10 production interactions (sandbox never publishes).
+    if (d.agent_rating != null)
+      setProbe('rating', d.agent_rating >= 0.75 ? 'ok' : 'warn', Number(d.agent_rating).toFixed(2));
+    else
+      setProbe('rating', 'warn', d.environment === 'production'
+        ? 'not yet rated · <10 interactions' : 'not published in sandbox');
     // Runtime economic calls authenticate with the agent certificate + a
     // request-bound proof — no management key to misplace.
     $('ready-note').textContent =

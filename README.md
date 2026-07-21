@@ -153,7 +153,7 @@ Rotate the key via `POST /v1/agents/{did}/rotate-key` (new key returned once).
   — optional. **Local/trusted use only** — it accepts a private key over HTTP.
   Until configured (via `.env` or this call), the service routes return
   `409 not_configured`.
-- **`GET /health`** — Provider status from the Nustro Operator (`unconfigured` until an identity is loaded). Includes the live escrow readout — `escrow_balance` / `escrow_threshold` (whole USDC) + `escrow_state` — read from the public AID; the console shows it as `0.00 / 15.00 USDC · FUNDING`.
+- **`GET /health`** — Provider status from the Nustro Operator (`unconfigured` until an identity is loaded). Includes the live escrow readout — `escrow_balance` / `escrow_threshold` (whole USDC) + `escrow_state` — read from the public AID; the console shows it as `0.00 / 15.00 USDC · FUNDING`. Also `agent_rating` (the **Rating (AR)** probe) — null until 10 production interactions, and never published for sandbox agents.
 
 ---
 
